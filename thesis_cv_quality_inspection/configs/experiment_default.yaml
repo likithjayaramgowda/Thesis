@@ -1,0 +1,82 @@
+project:
+  name: cv_edge_qc
+  seed: 42
+data:
+  datasets:
+    neu:
+      enabled_classification: true
+      enabled_detection: false
+      raw_dir: data\raw\neu
+      processed_dir: data\processed\neu
+      class_names:
+      - Cr
+      - In
+      - Pa
+      - PS
+      - RS
+      - Sc
+      kaggle_slug: kaustubhdikshit/neu-surface-defect-database
+    dagm:
+      enabled_classification: true
+      enabled_detection: false
+      raw_dir: data\raw\dagm
+      processed_dir: data\processed\dagm
+      class_names:
+      - Class1
+      - Class2
+      - Class3
+      - Class4
+      - Class5
+      - Class6
+      - Class7
+      - Class8
+      - Class9
+      - Class10
+      kaggle_slug: mhskjelvareid/dagm-2007-competition-dataset-optical-inspection
+    ksdd:
+      enabled_classification: true
+      enabled_detection: true
+      raw_dir: data\raw\ksdd
+      processed_dir: data\processed\ksdd
+      class_names:
+      - defect
+      - normal
+      kaggle_slug: sepehrnoey/ksdd-only
+splits:
+  train: 0.85
+  val: 0.1
+  test: 0.05
+classification:
+  input_size: 224
+  epochs: 5
+  batch_size: 16
+  lr: 0.001
+  models:
+  - resnet50
+  - efficientnet_b0
+  - mobilenet_v3_large
+detector:
+  input_size: 416
+  epochs: 20
+  batch_size: 8
+  lr: 0.001
+  models:
+  - yolo_nano
+export:
+  onnx_opset: 12
+  tflite_try: false
+pruning:
+  enabled: true
+  amount: 0.3
+realtime_sim:
+  target_fps: 30
+  max_frames: 20
+  profiles: ["EDGE_CPU_1T"]
+edge_profiles:
+  EDGE_CPU_1T: 1
+  EDGE_CPU_2T: 2
+  EDGE_CPU_4T: 4
+  DESKTOP_CPU_MAX: 0
+energy_proxy:
+  tdp_watts: 15.0
+  method: cpu_util_proxy
