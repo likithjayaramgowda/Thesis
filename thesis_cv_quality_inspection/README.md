@@ -20,21 +20,17 @@ This repository now implements:
 
 Or step by step:
 ```powershell
-.\scripts\01_setup_env.ps1
-.\scripts\02_get_data.ps1
-.\scripts\03_preprocess.ps1
-.\scripts\04_train.ps1
-.\scripts\05_export.ps1
-.\scripts\06_benchmark.ps1
-.\scripts\07_make_reports.ps1
+.\scripts\01_setup_env.ps1 - Setup the Requirements
+.\scripts\02_get_data.ps1 - Download the specific datasets
+.\scripts\03_preprocess.ps1 - Preprocess and aguments the data
+.\scripts\04_train.ps1 - trains all the models
+.\scripts\05_export.ps1 - exports the results
+.\scripts\06_benchmark.ps1 - used to benchmark 
+.\scripts\07_make_reports.ps1 - plots the graphs and tables
+.\scripts\08_streamlit.ps1 - live stream testing
 ```
 
-## Launch Streamlit Real-Time Simulation
-```powershell
-.\scripts\08_streamlit.ps1
-```
-
-The Streamlit app supports:
+## The Streamlit app supports:
 - classification stream simulation
 - detection stream simulation
 - dataset stream source
@@ -46,8 +42,8 @@ The Streamlit app supports:
 - `neu`: weak-label full-frame bbox using class labels
 
 ## Optimization
-- Classification pruning: supported
-- YOLO pruning: supported (`best_pruned.pt` generated and benchmarked)
+- Classification pruning
+- YOLO pruning: `best_pruned.pt` generated and benchmarked
 - ONNX export: baseline + pruned variants
 - INT8 dynamic quantization for classification ONNX
 
@@ -56,9 +52,6 @@ The Streamlit app supports:
 - Exported models: `outputs/models_onnx/`, `outputs/models_tflite/`
 - Figures: `docs/figures/`
 - Tables: `docs/tables/`
-
-## Documentation
-- Implementation alignment: `docs/IMPLEMENTATION_ALIGNMENT.md`
 
 ## Demo Data
 - Curated demo subsets are available in `data/demo_subset/` for quick validation.
