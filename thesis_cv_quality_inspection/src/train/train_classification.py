@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import matplotlib.pyplot as plt
 import torch
 from torch import nn, optim
 from torchvision import datasets, transforms, models
@@ -57,9 +58,11 @@ def train_one(dataset_dir: Path, model_name: str, cfg):
 
     best_acc = 0.0
     best_path = Path("outputs/checkpoints") / f"{dataset_dir.name}__{model_name}_best.pth"
+    history = {"epoch": [], "train_loss": [], "val_loss": [], "val_accuracy": []}
 
-    for _ in range(epochs):
+    for epoch in range(1, epochs + 1):
         model.train()
+        batch_losses = []
         for x, y in train_loader:
             x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
@@ -67,18 +70,25 @@ def train_one(dataset_dir: Path, model_name: str, cfg):
             loss = criterion(out, y)
             loss.backward()
             optimizer.step()
+            batch_losses.append(float(loss.item()))
 
         model.eval()
         y_true, y_pred = [], []
+        val_losses = []
         with torch.no_grad():
             for x, y in val_loader:
-                x = x.to(device)
+                x, y = x.to(device), y.to(device)
                 out = model(x)
+                val_losses.append(float(criterion(out, y).item()))
                 pred = out.argmax(1).cpu().numpy().tolist()
                 y_true.extend(y.numpy().tolist())
                 y_pred.extend(pred)
 
         acc = accuracy_score(y_true, y_pred)
+        history["epoch"].append(epoch)
+        history["train_loss"].append(sum(batch_losses) / max(1, len(batch_losses)))
+        history["val_loss"].append(sum(val_losses) / max(1, len(val_losses)))
+        history["val_accuracy"].append(float(acc))
         if acc > best_acc:
             best_acc = acc
             best_path.parent.mkdir(parents=True, exist_ok=True)
@@ -92,8 +102,38 @@ def train_one(dataset_dir: Path, model_name: str, cfg):
         "precision": float(precision),
         "recall": float(recall),
         "f1": float(f1),
-        "checkpoint": str(best_path)
+        "checkpoint": str(best_path),
+        "history": history,
     }
+
+    out_hist = Path("outputs/history")
+    out_hist.mkdir(parents=True, exist_ok=True)
+    (out_hist / f"classification__{dataset_dir.name}__{model_name}.json").write_text(
+        json.dumps(history, indent=2), encoding="utf-8"
+    )
+
+    fig_dir = Path("docs/figures")
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    plt.figure(figsize=(8, 4))
+    plt.plot(history["epoch"], history["train_loss"], label="train_loss")
+    plt.plot(history["epoch"], history["val_loss"], label="val_loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title(f"Classification Loss - {dataset_dir.name} - {model_name}")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(fig_dir / f"FIG_Classification_Loss_{dataset_dir.name}__{model_name}.png", dpi=300)
+    plt.close()
+
+    plt.figure(figsize=(8, 4))
+    plt.plot(history["epoch"], history["val_accuracy"], label="val_accuracy")
+    plt.xlabel("Epoch")
+    plt.ylabel("Accuracy")
+    plt.title(f"Classification Val Accuracy - {dataset_dir.name} - {model_name}")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(fig_dir / f"FIG_Classification_ValAcc_{dataset_dir.name}__{model_name}.png", dpi=300)
+    plt.close()
     return metrics
 
 

@@ -19,6 +19,30 @@ def _load_jsons(pattern: str):
     return pd.DataFrame(data)
 
 
+def _load_history(pattern: str):
+    files = Path("outputs/history").glob(pattern)
+    rows = []
+    for f in files:
+        try:
+            payload = json.loads(f.read_text(encoding="utf-8"))
+            dataset = f.stem.split("__")[1] if "__" in f.stem else "unknown"
+            model = f.stem.split("__")[2] if "__" in f.stem and len(f.stem.split("__")) > 2 else f.stem
+            for i, ep in enumerate(payload.get("epoch", [])):
+                rows.append(
+                    {
+                        "dataset": dataset,
+                        "model": model,
+                        "epoch": ep,
+                        "train_loss": payload.get("train_loss", [None] * len(payload.get("epoch", [])))[i],
+                        "val_loss": payload.get("val_loss", [None] * len(payload.get("epoch", [])))[i],
+                        "val_accuracy": payload.get("val_accuracy", [None] * len(payload.get("epoch", [])))[i],
+                    }
+                )
+        except Exception:
+            continue
+    return pd.DataFrame(rows)
+
+
 def _save_table(df, name):
     out_csv = Path("docs/tables") / name
     out_csv.parent.mkdir(parents=True, exist_ok=True)
@@ -127,7 +151,11 @@ def make_sample_detections(det_df):
         best_pt = run_dir / "weights" / "best.pt"
         if not best_pt.exists():
             continue
-        sample_img = next((Path(f"data/processed/{dataset}/images/test").rglob("*.jpg")), None)
+        sample_img = next((Path(f"data/processed/{dataset}/images_detection/test").rglob("*.jpg")), None)
+        if not sample_img:
+            sample_img = next((Path(f"data/processed/{dataset}/images_detection/test").rglob("*.png")), None)
+        if not sample_img:
+            sample_img = next((Path(f"data/processed/{dataset}/images_detection/test").rglob("*.bmp")), None)
         if not sample_img:
             continue
         y = YOLO(str(best_pt))
@@ -167,6 +195,7 @@ def main():
     class_df = _load_jsons("classification_bench__*.json")
     det_df = _load_jsons("detection_bench__*.json")
     sim_df = _load_jsons("realtime_sim__*.json")
+    hist_df = _load_history("classification__*.json")
 
     if not class_df.empty:
         _save_table(class_df, "TABLE_Classification_Benchmark_All.csv")
@@ -175,6 +204,8 @@ def main():
         _save_table(det_df[["dataset","model","map50","latency_ms","energy_proxy_wh_per_1000"]], "TABLE_YOLO_Tradeoff_Accuracy_Latency_Energy.csv")
     if not sim_df.empty:
         _save_table(sim_df, "TABLE_RealTime_Simulation.csv")
+    if not hist_df.empty:
+        _save_table(hist_df, "TABLE_Classification_TrainVal_History.csv")
 
     if not class_df.empty or not det_df.empty:
         model_sizes = []

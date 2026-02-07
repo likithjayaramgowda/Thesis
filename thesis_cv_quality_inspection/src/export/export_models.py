@@ -35,6 +35,7 @@ def export_classification(cfg):
         if not processed_dir.exists():
             continue
         num_classes = len(dcfg["class_names"])
+        exported_base = False
         for model_name in cfg["classification"]["models"]:
             variants = [
                 ("", Path("outputs/checkpoints") / f"{processed_dir.name}__{model_name}_best.pth"),
@@ -67,9 +68,11 @@ def export_classification(cfg):
                 except Exception as e:
                     log = Path("outputs/logs") / "quantization_warnings.json"
                     log.write_text(json.dumps({"classification_quantization_failed": str(e)}, indent=2), encoding="utf-8")
+                if suffix == "":
+                    exported_base = True
 
             # TFLite export (uses Keras ImageNet weights as proxy for latency benchmarking)
-            if suffix == "":
+            if exported_base:
                 try:
                     if model_name == "resnet50":
                         kmodel = tf.keras.applications.ResNet50(weights="imagenet", input_shape=(cfg["classification"]["input_size"], cfg["classification"]["input_size"], 3))
@@ -87,6 +90,7 @@ def export_classification(cfg):
                 except Exception as e:
                     log = Path("outputs/logs") / "tflite_export_warnings.json"
                     log.write_text(json.dumps({"classification_tflite_export_failed": str(e)}, indent=2), encoding="utf-8")
+                exported_base = False
 
 
 def export_yolo(cfg):
@@ -105,6 +109,20 @@ def export_yolo(cfg):
                 return c
         return None
 
+    def move_latest_onnx(target_path: Path, run_dir: Path):
+        export_dir = Path("runs") / "export"
+        if export_dir.exists():
+            onnx_candidates = sorted(export_dir.rglob("*.onnx"), key=lambda p: p.stat().st_mtime, reverse=True)
+            if onnx_candidates:
+                if target_path.exists():
+                    target_path.unlink()
+                onnx_candidates[0].replace(target_path)
+        best_onnx = run_dir / "weights" / "best.onnx"
+        if best_onnx.exists():
+            if target_path.exists():
+                target_path.unlink()
+            best_onnx.replace(target_path)
+
     for name, dcfg in cfg["data"]["datasets"].items():
         if not dcfg.get("enabled_detection", False):
             continue
@@ -112,35 +130,33 @@ def export_yolo(cfg):
             run_dir = find_run_dir(name, model_name)
             if not run_dir:
                 continue
-            best_pt = run_dir / "weights" / "best.pt"
-            if not best_pt.exists():
-                continue
-            model = YOLO(str(best_pt))
-            onnx_path = outputs_onnx / f"{name}__{model_name}_best.onnx"
-            model.export(format="onnx", imgsz=cfg["detector"]["input_size"], opset=cfg["export"]["onnx_opset"], half=False)
-            # Move exported ONNX from runs/export to outputs/models_onnx
-            export_dir = Path("runs") / "export"
-            if export_dir.exists():
-                onnx_candidates = sorted(export_dir.rglob("*.onnx"), key=lambda p: p.stat().st_mtime, reverse=True)
-                if onnx_candidates:
-                    onnx_candidates[0].replace(onnx_path)
-            # If Ultralytics saved ONNX in weights/, copy it
-            best_onnx = run_dir / "weights" / "best.onnx"
-            if best_onnx.exists():
-                if onnx_path.exists():
-                    onnx_path.unlink()
-                best_onnx.replace(onnx_path)
-            if cfg["export"].get("tflite_try", False):
+            variants = [("best.pt", ""), ("best_pruned.pt", "_pruned")]
+            for weight_name, suffix in variants:
+                pt_path = run_dir / "weights" / weight_name
+                if not pt_path.exists():
+                    continue
+                model = YOLO(str(pt_path))
+                onnx_path = outputs_onnx / f"{name}__{model_name}_best{suffix}.onnx"
                 try:
-                    model.export(format="tflite", imgsz=cfg["detector"]["input_size"])
+                    model.export(
+                        format="onnx",
+                        imgsz=cfg["detector"]["input_size"],
+                        opset=cfg["export"]["onnx_opset"],
+                        half=False,
+                    )
+                    move_latest_onnx(onnx_path, run_dir)
                 except Exception as e:
                     log = Path("outputs/logs") / "export_warnings.json"
-                    data = {"yolo_tflite_export_failed": str(e)}
+                    data = {"yolo_onnx_export_failed": str(e), "dataset": name, "model": model_name, "variant": suffix}
                     log.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
-            # pruning not supported in this pipeline
-            log = Path("outputs/logs") / "pruning_log.json"
-            log.write_text(json.dumps({"yolo_pruning": "Not supported; proceeding with quantization only."}, indent=2), encoding="utf-8")
+                if cfg["export"].get("tflite_try", False):
+                    try:
+                        model.export(format="tflite", imgsz=cfg["detector"]["input_size"])
+                    except Exception as e:
+                        log = Path("outputs/logs") / "export_warnings.json"
+                        data = {"yolo_tflite_export_failed": str(e), "dataset": name, "model": model_name, "variant": suffix}
+                        log.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def main():

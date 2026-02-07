@@ -49,6 +49,7 @@ def run_realtime_sim():
     target_fps = float(sim_cfg.get("target_fps", 30))
     max_frames = int(sim_cfg.get("max_frames", 200))
     sim_profiles = sim_cfg.get("profiles", [])
+    sim_mode = sim_cfg.get("mode", "dataset_stream")
 
     out_dir = Path("outputs/metrics")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -111,6 +112,8 @@ def run_realtime_sim():
                         "dataset": name,
                         "model": label,
                         "profile": profile,
+                        "stream_mode": sim_mode,
+                        "hardware_mode": "cpu_only_no_extra_hardware",
                         "target_fps": target_fps,
                         "frames": len(imgs),
                         "mean_latency_ms": mean_latency,

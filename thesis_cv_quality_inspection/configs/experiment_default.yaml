@@ -5,7 +5,7 @@ data:
   datasets:
     neu:
       enabled_classification: true
-      enabled_detection: false
+      enabled_detection: true
       raw_dir: data\raw\neu
       processed_dir: data\processed\neu
       class_names:
@@ -18,7 +18,7 @@ data:
       kaggle_slug: kaustubhdikshit/neu-surface-defect-database
     dagm:
       enabled_classification: true
-      enabled_detection: false
+      enabled_detection: true
       raw_dir: data\raw\dagm
       processed_dir: data\processed\dagm
       class_names:
@@ -62,6 +62,7 @@ detector:
   lr: 0.001
   models:
   - yolo_nano
+  - yolo_small
 export:
   onnx_opset: 12
   tflite_try: false
@@ -72,6 +73,7 @@ realtime_sim:
   target_fps: 30
   max_frames: 20
   profiles: ["EDGE_CPU_1T"]
+  mode: dataset_stream
 edge_profiles:
   EDGE_CPU_1T: 1
   EDGE_CPU_2T: 2

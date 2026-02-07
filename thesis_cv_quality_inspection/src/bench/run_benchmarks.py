@@ -175,15 +175,19 @@ def bench_detection(cfg):
             continue
         data_yaml = processed_dir / "yolo_data.yaml"
         if not data_yaml.exists():
+            names = dcfg["class_names"] if name == "neu" else ["defect"]
+            names_serialized = "[" + ", ".join([f"'{c}'" for c in names]) + "]"
             data_yaml.write_text(
-                "\n".join([
-                    f"path: {processed_dir.resolve().as_posix()}",
-                    "train: images/train",
-                    "val: images/val",
-                    "test: images/test",
-                    "names: ['defect']",
-                ]),
-                encoding="utf-8"
+                "\n".join(
+                    [
+                        f"path: {processed_dir.resolve().as_posix()}",
+                        "train: images_detection/train",
+                        "val: images_detection/val",
+                        "test: images_detection/test",
+                        f"names: {names_serialized}",
+                    ]
+                ),
+                encoding="utf-8",
             )
         def find_run_dir(dataset, model):
             candidates = [
@@ -199,62 +203,66 @@ def bench_detection(cfg):
             run_dir = find_run_dir(name, model_name)
             if not run_dir:
                 continue
-            best_pt = run_dir / "weights" / "best.pt"
-            onnx_path = Path("outputs/models_onnx") / f"{name}__{model_name}_best.onnx"
-            if not onnx_path.exists():
-                alt = run_dir / "weights" / "best.onnx"
-                if alt.exists():
-                    onnx_path = alt
-            if not best_pt.exists():
-                continue
-            # mAP via ultralytics (pt)
-            model = YOLO(str(best_pt))
-            val_res = model.val(data=str(data_yaml), imgsz=input_size, device="cpu")
-            map50 = float(val_res.box.map50) if hasattr(val_res.box, "map50") else 0.0
-            map5095 = float(val_res.box.map) if hasattr(val_res.box, "map") else 0.0
+            variants = [("best.pt", model_name, ""), ("best_pruned.pt", f"{model_name}_pruned", "_pruned")]
+            for pt_name, label, onnx_suffix in variants:
+                pt_path = run_dir / "weights" / pt_name
+                if not pt_path.exists():
+                    continue
+                onnx_path = Path("outputs/models_onnx") / f"{name}__{model_name}_best{onnx_suffix}.onnx"
+                if not onnx_path.exists():
+                    alt = run_dir / "weights" / "best.onnx"
+                    if alt.exists():
+                        onnx_path = alt
 
-            # latency via ONNX
-            if onnx_path.exists():
-                sample_imgs = list((processed_dir / "images" / "test").rglob("*.jpg"))
-                if not sample_imgs:
-                    sample_imgs = list((processed_dir / "images" / "test").rglob("*.bmp"))
-                sample_imgs = sample_imgs[:10]
-                images = [load_image(p, input_size) for p in sample_imgs]
-                for profile, threads in profiles.items():
-                    set_thread_count(threads)
-                    avg_cpu = sample_cpu_util()
-                    latency, fps = benchmark_onnx(onnx_path, images, input_size, threads)
-                    energy_wh = (avg_cpu / 100.0) * energy_tdp * (latency/1000.0) / 3600.0 * 1000.0
-                    def _scalar(v):
-                        try:
-                            import numpy as _np
-                            if isinstance(v, _np.ndarray):
-                                return float(_np.mean(v)) if v.size else 0.0
-                        except Exception:
-                            pass
-                        try:
-                            return float(v)
-                        except Exception:
-                            return 0.0
+                model = YOLO(str(pt_path))
+                val_res = model.val(data=str(data_yaml), imgsz=input_size, device="cpu")
+                map50 = float(val_res.box.map50) if hasattr(val_res.box, "map50") else 0.0
+                map5095 = float(val_res.box.map) if hasattr(val_res.box, "map") else 0.0
 
-                    record = {
-                        "dataset": name,
-                        "model": model_name,
-                        "profile": profile,
-                        "map50": map50,
-                        "map5095": map5095,
-                        "precision": _scalar(val_res.box.p) if hasattr(val_res.box, "p") else 0.0,
-                        "recall": _scalar(val_res.box.r) if hasattr(val_res.box, "r") else 0.0,
-                        "latency_ms": latency,
-                        "fps": fps,
-                        "model_size_mb": onnx_path.stat().st_size / (1024 * 1024) if onnx_path.exists() else 0.0,
-                        "energy_proxy_wh_per_1000": energy_wh,
-                        "energy_method": cfg["energy_proxy"]["method"],
-                        "note": "mAP computed with PT weights; latency from ONNX"
-                    }
-                    metrics_out.joinpath(f"detection_bench__{name}__{model_name}__{profile}.json").write_text(
-                        json.dumps(record, indent=2), encoding="utf-8"
-                    )
+                if onnx_path.exists():
+                    sample_imgs = list((processed_dir / "images_detection" / "test").rglob("*.jpg"))
+                    if not sample_imgs:
+                        sample_imgs = list((processed_dir / "images_detection" / "test").rglob("*.bmp"))
+                    if not sample_imgs:
+                        sample_imgs = list((processed_dir / "images_detection" / "test").rglob("*.png"))
+                    sample_imgs = sample_imgs[:10]
+                    images = [load_image(p, input_size) for p in sample_imgs]
+                    for profile, threads in profiles.items():
+                        set_thread_count(threads)
+                        avg_cpu = sample_cpu_util()
+                        latency, fps = benchmark_onnx(onnx_path, images, input_size, threads)
+                        energy_wh = (avg_cpu / 100.0) * energy_tdp * (latency/1000.0) / 3600.0 * 1000.0
+
+                        def _scalar(v):
+                            try:
+                                import numpy as _np
+                                if isinstance(v, _np.ndarray):
+                                    return float(_np.mean(v)) if v.size else 0.0
+                            except Exception:
+                                pass
+                            try:
+                                return float(v)
+                            except Exception:
+                                return 0.0
+
+                        record = {
+                            "dataset": name,
+                            "model": label,
+                            "profile": profile,
+                            "map50": map50,
+                            "map5095": map5095,
+                            "precision": _scalar(val_res.box.p) if hasattr(val_res.box, "p") else 0.0,
+                            "recall": _scalar(val_res.box.r) if hasattr(val_res.box, "r") else 0.0,
+                            "latency_ms": latency,
+                            "fps": fps,
+                            "model_size_mb": onnx_path.stat().st_size / (1024 * 1024) if onnx_path.exists() else 0.0,
+                            "energy_proxy_wh_per_1000": energy_wh,
+                            "energy_method": cfg["energy_proxy"]["method"],
+                            "note": "mAP computed with PT weights; latency from ONNX",
+                        }
+                        metrics_out.joinpath(f"detection_bench__{name}__{label}__{profile}.json").write_text(
+                            json.dumps(record, indent=2), encoding="utf-8"
+                        )
 
 
 def main():

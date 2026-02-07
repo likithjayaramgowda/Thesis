@@ -19,13 +19,16 @@ Set-Location $root
 
 $pythonCmd = Get-Python311
 
-if (Test-Path "venv") {
-    Remove-Item -Recurse -Force "venv"
+$venvPython = Join-Path $root "venv\\Scripts\\python.exe"
+if (-not (Test-Path $venvPython)) {
+    if (Test-Path "venv") {
+        Write-Host "Existing venv is incomplete. Creating a fresh venv in place..."
+    }
+    & $pythonCmd[0] @($pythonCmd[1..($pythonCmd.Length-1)] + @("-m","venv","venv"))
+} else {
+    Write-Host "Using existing venv."
 }
 
-& $pythonCmd[0] @($pythonCmd[1..($pythonCmd.Length-1)] + @("-m","venv","venv"))
-
-$venvPython = Join-Path $root "venv\\Scripts\\python.exe"
 & $venvPython -m pip install --upgrade pip
 & $venvPython -m pip install -r "requirements.txt"
 

@@ -1,0 +1,7 @@
+venv/
+data/raw/
+data/processed/
+outputs/
+docs/defense_pack/
+__pycache__/
+*.pyc
