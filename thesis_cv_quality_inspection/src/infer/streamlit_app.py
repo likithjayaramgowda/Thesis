@@ -31,7 +31,9 @@ def _iter_dataset_images(dataset: str, task: str, max_frames: int):
     if task == "classification":
         root = Path(f"data/processed/{dataset}/images/test")
     else:
-        root = Path(f"data/processed/{dataset}/images_detection/test")
+        root = Path(f"data/processed/{dataset}/yolo/images/test")
+        if not root.exists():
+            root = Path(f"data/processed/{dataset}/images_detection/test")
     imgs = []
     for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
         imgs.extend(list(root.rglob(ext)))
@@ -139,9 +141,10 @@ def main():
     if start and task == "detection":
         run_dirs = []
         for model_name in cfg["detector"]["models"]:
-            rd = Path("outputs/logs") / f"{dataset}__{model_name}" / "weights"
-            if rd.exists():
-                run_dirs.extend(list(rd.glob("*.pt")))
+            for base in [Path("outputs/logs"), Path("runs/detect/outputs/logs")]:
+                rd = base / f"{dataset}__{model_name}" / "weights"
+                if rd.exists():
+                    run_dirs.extend(list(rd.glob("*.pt")))
         if not run_dirs:
             st.error(f"No trained YOLO weights found for dataset '{dataset}'.")
             return

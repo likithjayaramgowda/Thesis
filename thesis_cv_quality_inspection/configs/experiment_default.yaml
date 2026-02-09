@@ -51,29 +51,72 @@ classification:
   epochs: 5
   batch_size: 16
   lr: 0.001
+  augment:
+    enabled: true
+    horizontal_flip: 0.5
+    rotation_deg: 10
+    color_jitter:
+      brightness: 0.2
+      contrast: 0.2
+      saturation: 0.1
+      hue: 0.02
   models:
   - resnet50
   - efficientnet_b0
   - mobilenet_v3_large
 detector:
   input_size: 416
-  epochs: 20
+  epochs: 5
   batch_size: 8
   lr: 0.001
+  splits:
+    train: 0.7
+    val: 0.15
+    test: 0.15
+  max_background_ratio: 2.0
+  neu_weak_label:
+    quantile: 0.98
+    trim: 0.15
+    blur_radius: 2.0
+    min_side_frac: 0.15
+    max_side_frac: 0.75
+    fallback_box_frac: 0.5
   models:
   - yolo_nano
   - yolo_small
 export:
   onnx_opset: 12
-  tflite_try: false
+  classification_tflite_from_onnx: true
+  onnx2tf_extra_args: []
+  tflite_try: true
 pruning:
   enabled: true
-  amount: 0.3
+  amount: 0.1
+  max_layer_amount: 0.15
+  classifier_head_amount: 0.05
+  finetune_epochs: 1
+  finetune_lr: 0.0003
+  finetune_batch_size: 16
+  max_accuracy_drop: 0.03
+  finetune_max_batches: 12
+  eval_max_batches: 20
+  prune_classification: true
+  prune_detection: false
 realtime_sim:
   target_fps: 30
   max_frames: 20
   profiles: ["EDGE_CPU_1T"]
   mode: dataset_stream
+analysis:
+  ranking_profile: EDGE_CPU_1T
+  ranking_weights:
+    accuracy: 0.5
+    latency: 0.3
+    energy: 0.2
+  max_accuracy_gap_vs_pt: 0.05
+benchmark:
+  max_samples: 240
+  latency_samples: 20
 edge_profiles:
   EDGE_CPU_1T: 1
   EDGE_CPU_2T: 2

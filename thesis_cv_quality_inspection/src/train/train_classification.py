@@ -31,19 +31,47 @@ def build_model(name: str, num_classes: int):
     return model
 
 
+def build_transforms(input_size: int, augment_cfg: dict):
+    train_steps = [transforms.Resize((input_size, input_size))]
+    if augment_cfg.get("enabled", True):
+        hflip_p = float(augment_cfg.get("horizontal_flip", 0.5))
+        if hflip_p > 0:
+            train_steps.append(transforms.RandomHorizontalFlip(p=hflip_p))
+
+        rotation = float(augment_cfg.get("rotation_deg", 0))
+        if rotation > 0:
+            train_steps.append(transforms.RandomRotation(degrees=rotation))
+
+        cj = augment_cfg.get("color_jitter", {})
+        brightness = float(cj.get("brightness", 0.0))
+        contrast = float(cj.get("contrast", 0.0))
+        saturation = float(cj.get("saturation", 0.0))
+        hue = float(cj.get("hue", 0.0))
+        if any(v > 0 for v in [brightness, contrast, saturation, hue]):
+            train_steps.append(
+                transforms.ColorJitter(
+                    brightness=brightness,
+                    contrast=contrast,
+                    saturation=saturation,
+                    hue=hue,
+                )
+            )
+
+    train_steps.append(transforms.ToTensor())
+    eval_steps = [transforms.Resize((input_size, input_size)), transforms.ToTensor()]
+    return transforms.Compose(train_steps), transforms.Compose(eval_steps)
+
+
 def train_one(dataset_dir: Path, model_name: str, cfg):
     input_size = cfg["classification"]["input_size"]
     batch_size = cfg["classification"]["batch_size"]
     epochs = cfg["classification"]["epochs"]
     lr = cfg["classification"]["lr"]
+    aug_cfg = cfg["classification"].get("augment", {})
+    train_transform, eval_transform = build_transforms(input_size, aug_cfg)
 
-    transform = transforms.Compose([
-        transforms.Resize((input_size, input_size)),
-        transforms.ToTensor(),
-    ])
-
-    train_ds = datasets.ImageFolder(dataset_dir / "images" / "train", transform=transform)
-    val_ds = datasets.ImageFolder(dataset_dir / "images" / "val", transform=transform)
+    train_ds = datasets.ImageFolder(dataset_dir / "images" / "train", transform=train_transform)
+    val_ds = datasets.ImageFolder(dataset_dir / "images" / "val", transform=eval_transform)
 
     num_classes = len(train_ds.classes)
     model = build_model(model_name, num_classes)
@@ -58,11 +86,13 @@ def train_one(dataset_dir: Path, model_name: str, cfg):
 
     best_acc = 0.0
     best_path = Path("outputs/checkpoints") / f"{dataset_dir.name}__{model_name}_best.pth"
-    history = {"epoch": [], "train_loss": [], "val_loss": [], "val_accuracy": []}
+    history = {"epoch": [], "train_loss": [], "train_accuracy": [], "val_loss": [], "val_accuracy": []}
+    best_y_true, best_y_pred = [], []
 
     for epoch in range(1, epochs + 1):
         model.train()
         batch_losses = []
+        train_true, train_pred = [], []
         for x, y in train_loader:
             x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
@@ -71,6 +101,9 @@ def train_one(dataset_dir: Path, model_name: str, cfg):
             loss.backward()
             optimizer.step()
             batch_losses.append(float(loss.item()))
+            pred = out.argmax(1).cpu().numpy().tolist()
+            train_pred.extend(pred)
+            train_true.extend(y.cpu().numpy().tolist())
 
         model.eval()
         y_true, y_pred = [], []
@@ -85,16 +118,23 @@ def train_one(dataset_dir: Path, model_name: str, cfg):
                 y_pred.extend(pred)
 
         acc = accuracy_score(y_true, y_pred)
+        train_acc = accuracy_score(train_true, train_pred) if train_true else 0.0
         history["epoch"].append(epoch)
         history["train_loss"].append(sum(batch_losses) / max(1, len(batch_losses)))
+        history["train_accuracy"].append(float(train_acc))
         history["val_loss"].append(sum(val_losses) / max(1, len(val_losses)))
         history["val_accuracy"].append(float(acc))
         if acc > best_acc:
             best_acc = acc
             best_path.parent.mkdir(parents=True, exist_ok=True)
             torch.save(model.state_dict(), best_path)
+            best_y_true = list(y_true)
+            best_y_pred = list(y_pred)
 
-    precision, recall, f1, _ = precision_recall_fscore_support(y_true, y_pred, average="macro", zero_division=0)
+    if not best_y_true:
+        best_y_true = list(y_true)
+        best_y_pred = list(y_pred)
+    precision, recall, f1, _ = precision_recall_fscore_support(best_y_true, best_y_pred, average="macro", zero_division=0)
     metrics = {
         "dataset": dataset_dir.name,
         "model": model_name,
@@ -102,6 +142,7 @@ def train_one(dataset_dir: Path, model_name: str, cfg):
         "precision": float(precision),
         "recall": float(recall),
         "f1": float(f1),
+        "class_to_idx": train_ds.class_to_idx,
         "checkpoint": str(best_path),
         "history": history,
     }
@@ -126,13 +167,14 @@ def train_one(dataset_dir: Path, model_name: str, cfg):
     plt.close()
 
     plt.figure(figsize=(8, 4))
+    plt.plot(history["epoch"], history["train_accuracy"], label="train_accuracy")
     plt.plot(history["epoch"], history["val_accuracy"], label="val_accuracy")
     plt.xlabel("Epoch")
     plt.ylabel("Accuracy")
-    plt.title(f"Classification Val Accuracy - {dataset_dir.name} - {model_name}")
+    plt.title(f"Classification Accuracy - {dataset_dir.name} - {model_name}")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(fig_dir / f"FIG_Classification_ValAcc_{dataset_dir.name}__{model_name}.png", dpi=300)
+    plt.savefig(fig_dir / f"FIG_Classification_AccuracyCurve_{dataset_dir.name}__{model_name}.png", dpi=300)
     plt.close()
     return metrics
 

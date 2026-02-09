@@ -14,9 +14,9 @@ def make_data_yaml(processed_dir: Path, class_names):
     data_yaml.write_text(
         "\n".join([
             f"path: {processed_dir.as_posix()}",
-            "train: images/train",
-            "val: images/val",
-            "test: images/test",
+            "train: yolo/images/train",
+            "val: yolo/images/val",
+            "test: yolo/images/test",
             f"names: {class_names}",
         ]),
         encoding="utf-8"
@@ -42,7 +42,9 @@ def main():
         if not dcfg.get("enabled_detection", False):
             continue
         processed_dir = Path(dcfg["processed_dir"])
-        labels_dir = processed_dir / "labels_detection"
+        labels_dir = processed_dir / "yolo" / "labels"
+        if not labels_dir.exists():
+            labels_dir = processed_dir / "labels_detection"
         if not labels_dir.exists():
             raise RuntimeError(f"YOLO labels folder missing: {labels_dir}")
         label_files = list(labels_dir.rglob("*.txt"))
@@ -71,7 +73,8 @@ def main():
                 lr0=cfg["detector"]["lr"],
                 device="cpu",
                 project="outputs/logs",
-                name=f"{name}__{model_name}"
+                name=f"{name}__{model_name}",
+                exist_ok=True,
             )
 
             run_dir = Path(results.save_dir)
