@@ -18,6 +18,8 @@ This repository now implements:
 .\run.ps1
 ```
 
+Note: TFLite export dependencies (`onnx2tf`, `tf_keras`, `onnx-graphsurgeon`, `ai-edge-litert`) are installed by `scripts\01_setup_env.ps1`. If export fails with missing-module errors, rerun setup first.
+
 Or step by step:
 ```powershell
 .\scripts\01_setup_env.ps1 - Setup the Requirements

@@ -1,6 +1,8 @@
 import json
+import importlib.util
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -101,21 +103,55 @@ def _copy_latest_artifact(ext: str, target_path: Path, run_dir: Path, start_ts: 
     return True
 
 
-def _export_tflite_from_onnx(onnx_path: Path, tflite_path: Path, extra_args):
+def _module_exists(name: str) -> bool:
+    return importlib.util.find_spec(name) is not None
+
+
+def _missing_tflite_modules():
+    required = ("onnx2tf", "sng4onnx", "tf_keras", "onnx_graphsurgeon", "ai_edge_litert")
+    return [m for m in required if not _module_exists(m)]
+
+
+def _resolve_onnx2tf_cmd():
+    scripts_dir = Path(sys.executable).resolve().parent
+    for candidate_name in ("onnx2tf.exe", "onnx2tf"):
+        candidate = scripts_dir / candidate_name
+        if candidate.exists():
+            return [str(candidate)]
+
+    if _module_exists("onnx2tf"):
+        return [sys.executable, "-m", "onnx2tf"]
+
     onnx2tf_bin = shutil.which("onnx2tf")
-    if not onnx2tf_bin:
-        raise RuntimeError("onnx2tf not found on PATH; install onnx2tf to enable classification TFLite export.")
+    if onnx2tf_bin:
+        return [onnx2tf_bin]
+
+    raise RuntimeError(
+        "onnx2tf not found in current Python environment. "
+        "Run scripts\\01_setup_env.ps1 to install export dependencies."
+    )
+
+
+def _export_tflite_from_onnx(onnx_path: Path, tflite_path: Path, extra_args):
+    missing = _missing_tflite_modules()
+    if missing:
+        raise RuntimeError(
+            "Missing TFLite export modules: "
+            + ", ".join(missing)
+            + ". Run scripts\\01_setup_env.ps1 to install export dependencies."
+        )
 
     work_dir = Path("outputs/tmp_onnx2tf") / onnx_path.stem
     if work_dir.exists():
         shutil.rmtree(work_dir, ignore_errors=True)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    cmd = [onnx2tf_bin, "-i", str(onnx_path), "-o", str(work_dir), "--non_verbose"]
+    cmd = _resolve_onnx2tf_cmd() + ["-i", str(onnx_path), "-o", str(work_dir), "--non_verbose"]
     cmd.extend(extra_args or [])
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
-        raise RuntimeError(f"onnx2tf failed ({proc.returncode}): {proc.stderr[-4000:]}")
+        err_tail = (proc.stderr or proc.stdout or "")[-4000:]
+        raise RuntimeError(f"onnx2tf failed ({proc.returncode}): {err_tail}")
 
     tflite_candidates = list(work_dir.rglob("*.tflite"))
     if not tflite_candidates:
@@ -222,6 +258,8 @@ def export_yolo(cfg):
     outputs_tflite = Path("outputs/models_tflite")
     outputs_onnx.mkdir(parents=True, exist_ok=True)
     outputs_tflite.mkdir(parents=True, exist_ok=True)
+    export_cfg = cfg.get("export", {})
+    onnx2tf_extra_args = export_cfg.get("onnx2tf_extra_args", [])
     _, det_accept = _load_pruning_acceptance()
 
     def find_run_dir(dataset, model):
@@ -287,13 +325,11 @@ def export_yolo(cfg):
                             },
                         )
 
-                if cfg["export"].get("tflite_try", False):
-                    tflite_start = time.time()
+                if export_cfg.get("tflite_try", False):
                     try:
-                        model.export(format="tflite", imgsz=cfg["detector"]["input_size"])
-                        copied = _copy_latest_artifact(".tflite", tflite_path, run_dir, tflite_start)
-                        if not copied:
-                            raise RuntimeError("TFLite export returned but no TFLite artifact could be located.")
+                        if not onnx_path.exists():
+                            raise RuntimeError("ONNX artifact missing; cannot convert detection model to TFLite.")
+                        _export_tflite_from_onnx(onnx_path, tflite_path, onnx2tf_extra_args)
                     except Exception as e:
                         _append_warning(
                             Path("outputs/logs/export_warnings.json"),
